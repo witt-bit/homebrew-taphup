@@ -16,3 +16,10 @@ brew "<formula>"
 ## Documentation
 
 `brew help`, `man brew` or check [Homebrew's documentation](https://docs.brew.sh).
+
+## Apps
+
+### 1) 小旺AI截图
+```shell
+brew install witt/taphub/xw-screenshot
+```
