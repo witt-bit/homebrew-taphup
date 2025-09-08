@@ -19,7 +19,12 @@ brew "<formula>"
 
 ## Apps
 
-### 1) 小旺AI截图
+#### 1) 小旺AI截图
 ```shell
 brew install witt/taphub/xw-screenshot
+```
+
+#### 2) 字体`Monaco Nerd Font Ligatures`
+```shell
+brew install witt/taphub/font-monaco-nerd-font-ligatures
 ```
