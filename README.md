@@ -28,3 +28,8 @@ brew install witt/taphub/xw-screenshot
 ```shell
 brew install witt/taphub/font-monaco-nerd-font-ligatures
 ```
+
+#### 2) ToDesk
+```shell
+brew install witt/taphub/todesk
+```
