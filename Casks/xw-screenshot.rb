@@ -1,5 +1,5 @@
 cask "xw-screenshot" do
-  version "1.2.9"
+  version "1.3.0"
   sha256 :no_check
 
   on_arm do
@@ -23,6 +23,7 @@ cask "xw-screenshot" do
     regex(/<div[^>]+class\s*=\s*["']uplileft["'][^>]*>(?i:V)?\s*(\d+(?:\.\d+)+)/i)
   end
 
+  auto_updates true
   app "小旺AI截图.app"
   binary "#{appdir}/小旺AI截图.app/Contents/MacOS/wang-screenshot", target: "xw-screenshot"
 
