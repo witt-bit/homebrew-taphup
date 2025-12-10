@@ -35,13 +35,17 @@ brew install <formula>
   ```bash
   brew install witt/taphup/todesk
   ```
-- Tiny RDM (Redis Desktop Manager，作为 cask)
+- Tiny RDM
   ```bash
   brew install --cask tiny-rdm
   ```
+- Clash Mac
+  ```bash
+  brew install --cask clash-mac
+  ```
+
 
 （仓库可能随时增加/移除包，请以 `Casks/` 和 `Formula/` 目录为准）
-
 
 
 ## 常用命令速查
