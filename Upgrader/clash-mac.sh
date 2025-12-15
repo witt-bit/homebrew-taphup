@@ -163,16 +163,13 @@ normalized_version="${tag_name#v}"
 echo "Updating version/url/sha in ${CASK_PATH}..."
 perl -0777 -pe "s/version\\s+\"[^\"]+\"/version \"${normalized_version}\"/s" -i "${CASK_PATH}"
 
-# Try to replace single sha256 or :no_check -> simple sha replacement
-if grep -qE 'sha256\\s+:no_check' "${CASK_PATH}"; then
+# Try to replace sha256 in several common forms, or insert after version line
+if grep -qE 'sha256\s+:no_check' "${CASK_PATH}"; then
   perl -0777 -pe "s/sha256\\s+:no_check/sha256 \"${new_sha}\"/s" -i "${CASK_PATH}"
 else
-  if grep -qE 'sha256\\s+\"[0-9a-f]{64}\"' "${CASK_PATH}"; then
-    perl -0777 -pe "s/sha256\\s+\"[0-9a-f]{64}\"/sha256 \"${new_sha}\"/s" -i "${CASK_PATH}"
-  else
-    # fallback: insert sha256 after version line
-    perl -0777 -pe "s/(version\\s+\"${normalized_version}\"\\s*\\n)/\$1  sha256 \"${new_sha}\"\\n/s" -i "${CASK_PATH}"
-  fi
+  # First, remove ALL sha256 lines (including duplicates) that appear after the version line
+  # Then insert a single sha256 line after version
+  perl -0777 -pe "s/(version\\s+\"${normalized_version}\"\\s*\\n)((?:\\s*sha256[^\\n]*\\n)*)/\$1  sha256 \"${new_sha}\"\\n/s" -i "${CASK_PATH}"
 fi
 
 echo "Updated ${CASK_PATH} — please review changes: git diff -- ${CASK_PATH}"

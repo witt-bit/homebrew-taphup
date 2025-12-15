@@ -6,8 +6,8 @@
 # - 已移除 deprecated 的 depends_on macos 行（brew 会提示该用法已弃用）
 # - 请根据实际 DMG/ZIP 内的 app 名称调整 APP_NAME（默认为 "Clash.app"）
 cask "clash-mac" do
-  version "1.0.22"
-  sha256 "9589a6c9815067546b9ee2534c511aef5e54a931785c6a4d017dbe184043061e"
+  version "1.1.6"
+  sha256 "41b8014ff42f8121697b92602ca901f4a64fbfe97ae123ff1a8cf86bce84f784"
 
   url "https://github.com/666OS/ClashMac/releases/download/v#{version}/ClashMac-v#{version}-macos-arm64.zip"
   name "Clash for macOS"
