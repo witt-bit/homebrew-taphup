@@ -7,9 +7,16 @@
 # - 请根据实际 DMG/ZIP 内的 app 名称调整 APP_NAME（默认为 "Clash.app"）
 cask "clash-mac" do
   version "26.3"
-  sha256 "2cd26ebd3acf2818b35e214439a07488add6a94306319cb6c01359c496cbf3c4"
 
-  url "https://github.com/666OS/ClashMac/releases/download/v#{version}/ClashMac-v#{version}-macos-arm64.zip"
+  on_arm do
+    sha256 "2cd26ebd3acf2818b35e214439a07488add6a94306319cb6c01359c496cbf3c4"
+    url "https://github.com/666OS/ClashMac/releases/download/#{version}/ClashMac-#{version}-macos-arm64.zip"
+  end
+
+  on_intel do
+    sha256 "b5aa33db55ccf67ea666267c5ea9c1080379b395e1d4a57dcccf96adcf9cb07b"
+    url "https://github.com/666OS/ClashMac/releases/download/#{version}/ClashMac-#{version}-macos-x86_64.zip"
+  end
   name "Clash for macOS"
   desc "GUI client for Clash on macOS (packaged by 666OS/ClashMac)"
   homepage "https://github.com/666OS/ClashMac"

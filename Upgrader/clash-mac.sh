@@ -81,17 +81,34 @@ fi
 if [[ -z "$VERSION" ]]; then
   echo "Fetching latest release tag from upstream..."
   API="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest"
+  if [ -n "$AUTH_HEADER" ]; then
+    release_json=$(curl -sfL -H "$AUTH_HEADER" "$API")
+  else
+    release_json=$(curl -sfL "$API")
+  fi
 else
-  # accept both 'v1.2.3' and '1.2.3' inputs
+  # accept both 'v1.2.3' and '1.2.3' inputs — try v-prefixed tag first, then bare tag
   TAG="${VERSION}"
   TAG="${TAG#v}"
-  API="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/tags/v${TAG}"
-fi
-
-if [ -n "$AUTH_HEADER" ]; then
-  release_json=$(curl -sfL -H "$AUTH_HEADER" "$API")
-else
-  release_json=$(curl -sfL "$API")
+  API_V="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/tags/v${TAG}"
+  API_NO_V="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/tags/${TAG}"
+  if [ -n "$AUTH_HEADER" ]; then
+    release_json=$(curl -sfL -H "$AUTH_HEADER" "$API_V" || true)
+    if [ -z "$release_json" ]; then
+      release_json=$(curl -sfL -H "$AUTH_HEADER" "$API_NO_V" || true)
+      API="$API_NO_V"
+    else
+      API="$API_V"
+    fi
+  else
+    release_json=$(curl -sfL "$API_V" || true)
+    if [ -z "$release_json" ]; then
+      release_json=$(curl -sfL "$API_NO_V" || true)
+      API="$API_NO_V"
+    else
+      API="$API_V"
+    fi
+  fi
 fi
 
 if [ -z "$release_json" ]; then
@@ -107,47 +124,57 @@ if [ -z "$tag_name" ]; then
 fi
 echo "Selected tag: $tag_name"
 
-# Select preferred asset: dmg > zip > tar.gz > any mac-related asset > fallback any asset
-asset_entry=$(printf '%s' "$release_json" | jq -r '
-  .assets as $a |
-  ($a[] | select(.name|test("(?i)\\.dmg$")) ) //
-  ($a[] | select(.name|test("(?i)\\.zip$")) ) //
-  ($a[] | select(.name|test("(?i)\\.tar\\.gz$")) ) //
-  ($a[] | select(.name|test("(?i)darwin|mac|osx")) ) //
-  ($a[] ) |
-  {name: .name, url: .browser_download_url} |
-  @base64' | head -n1)
+# Normalize version without leading v (used to locate assets)
+normalized_version="${tag_name#v}"
 
-if [ -z "$asset_entry" ]; then
-  echo "No suitable release asset found for ${REPO_OWNER}/${REPO_NAME} release." >&2
-  exit 1
-fi
-
-asset_name=$(printf '%s' "$asset_entry" | base64 --decode | jq -r '.name')
-asset_url=$(printf '%s' "$asset_entry" | base64 --decode | jq -r '.url')
-
-echo "Selected asset: $asset_name"
-echo "Download URL: $asset_url"
-
+# Expect two architecture-specific assets named exactly as in the Cask
+# e.g. ClashMac-<version>-macos-arm64.zip and ClashMac-<version>-macos-x86_64.zip
 tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT
 
-asset_path="$tmpdir/$asset_name"
-echo "Downloading asset..."
+asset_arm_entry=$(printf '%s' "$release_json" | jq -r --arg name "ClashMac-${normalized_version}-macos-arm64.zip" '.assets[] | select(.name==$name) | {name:.name, url:.browser_download_url} | @base64')
+asset_intel_entry=$(printf '%s' "$release_json" | jq -r --arg name "ClashMac-${normalized_version}-macos-x86_64.zip" '.assets[] | select(.name==$name) | {name:.name, url:.browser_download_url} | @base64')
+
+if [ -z "$asset_arm_entry" ] || [ -z "$asset_intel_entry" ]; then
+  echo "Expected both arm64 and x86_64 assets not found for ${REPO_OWNER}/${REPO_NAME} release ${normalized_version}." >&2
+  exit 1
+fi
+
+asset_arm_name=$(printf '%s' "$asset_arm_entry" | base64 --decode | jq -r '.name')
+asset_arm_url=$(printf '%s' "$asset_arm_entry" | base64 --decode | jq -r '.url')
+asset_intel_name=$(printf '%s' "$asset_intel_entry" | base64 --decode | jq -r '.name')
+asset_intel_url=$(printf '%s' "$asset_intel_entry" | base64 --decode | jq -r '.url')
+
+echo "Selected assets: $asset_arm_name, $asset_intel_name"
+
+asset_arm_path="$tmpdir/$asset_arm_name"
+asset_intel_path="$tmpdir/$asset_intel_name"
+
+echo "Downloading arm64 asset..."
 if [ -n "$AUTH_HEADER" ]; then
-  curl -fL -H "$AUTH_HEADER" -o "$asset_path" "$asset_url"
+  curl -fL -H "$AUTH_HEADER" -o "$asset_arm_path" "$asset_arm_url"
 else
-  curl -fL -o "$asset_path" "$asset_url"
+  curl -fL -o "$asset_arm_path" "$asset_arm_url"
 fi
 
-echo "Computing sha256..."
+echo "Downloading x86_64 asset..."
+if [ -n "$AUTH_HEADER" ]; then
+  curl -fL -H "$AUTH_HEADER" -o "$asset_intel_path" "$asset_intel_url"
+else
+  curl -fL -o "$asset_intel_path" "$asset_intel_url"
+fi
+
+echo "Computing sha256 for arm64 and x86_64..."
 if [[ "$SHASUM_CMD" == "openssl dgst -sha256" ]]; then
-  new_sha=$(openssl dgst -sha256 "$asset_path" | awk '{print $2}')
+  new_sha_arm=$(openssl dgst -sha256 "$asset_arm_path" | awk '{print $2}')
+  new_sha_intel=$(openssl dgst -sha256 "$asset_intel_path" | awk '{print $2}')
 else
-  new_sha=$($SHASUM_CMD "$asset_path" | awk '{print $1}')
+  new_sha_arm=$($SHASUM_CMD "$asset_arm_path" | awk '{print $1}')
+  new_sha_intel=$($SHASUM_CMD "$asset_intel_path" | awk '{print $1}')
 fi
 
-echo "sha256: $new_sha"
+echo "arm64 sha256: $new_sha_arm"
+echo "x86_64 sha256: $new_sha_intel"
 
 if [[ ! -f "$CASK_PATH" ]]; then
   echo "Cask file not found at ${CASK_PATH}" >&2
@@ -161,16 +188,17 @@ cp "$CASK_PATH" "${CASK_PATH}.bak"
 normalized_version="${tag_name#v}"
 
 echo "Updating version/url/sha in ${CASK_PATH}..."
-perl -0777 -pe "s/version\\s+\"[^\"]+\"/version \"${normalized_version}\"/s" -i "${CASK_PATH}"
+perl -0777 -pe "s/version\s+\"[^\"]+\"/version \"${normalized_version}\"/s" -i "${CASK_PATH}"
 
-# Try to replace sha256 in several common forms, or insert after version line
-if grep -qE 'sha256\s+:no_check' "${CASK_PATH}"; then
-  perl -0777 -pe "s/sha256\\s+:no_check/sha256 \"${new_sha}\"/s" -i "${CASK_PATH}"
-else
-  # First, remove ALL sha256 lines (including duplicates) that appear after the version line
-  # Then insert a single sha256 line after version
-  perl -0777 -pe "s/(version\\s+\"${normalized_version}\"\\s*\\n)((?:\\s*sha256[^\\n]*\\n)*)/\$1  sha256 \"${new_sha}\"\\n/s" -i "${CASK_PATH}"
-fi
+# Update per-architecture sha256 entries using sed range patterns
+# For on_arm block: replace sha256 value between on_arm and end
+sed -i '' "/on_arm/,/^end$/s/sha256 \"[^\"]*\"/sha256 \"${new_sha_arm}\"/" "${CASK_PATH}"
+# For on_intel block: replace sha256 value between on_intel and end
+sed -i '' "/on_intel/,/^end$/s/sha256 \"[^\"]*\"/sha256 \"${new_sha_intel}\"/" "${CASK_PATH}"
+
+# Remove any top-level sha256 lines that appear before the first on_arm/on_intel block
+tmpfile=$(mktemp)
+awk 'BEGIN{seen=0} { if ($0 ~ /^[[:space:]]*on_(arm|intel)[[:space:]]+do/) seen=1; if (seen==0 && $0 ~ /^[[:space:]]*sha256[[:space:]]+/) next; print }' "${CASK_PATH}" > "$tmpfile" && mv "$tmpfile" "${CASK_PATH}"
 
 echo "Updated ${CASK_PATH} — please review changes: git diff -- ${CASK_PATH}"
 
