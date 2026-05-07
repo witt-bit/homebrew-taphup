@@ -43,7 +43,12 @@ brew install <formula>
   ```bash
   brew install --cask clash-mac
   ```
+- Ecopaste
+> 自封装的版本，非官方版
 
+  ```bash
+  brew install --cask witt/taps/ecopaste
+  ```
 
 （仓库可能随时增加/移除包，请以 `Casks/` 和 `Formula/` 目录为准）
 
