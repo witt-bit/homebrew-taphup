@@ -1,12 +1,12 @@
 cask "ecopaste" do
-    version "0.5.6"
+    version "0.6.0"
 
     if Hardware::CPU.intel?
       url "https://ghproxy.monkeyray.net/https://github.com/witt-bit/EcoPastePro/releases/download/v#{version}/EcoPaste_x64.app.tar.gz"
-      sha256 "950fc8826e26d011976e354cb103d02c80ebfa9a155228e6b611d54d2f44a39f"
+      sha256 "409b05b0e571fa2bcabc3694c92a1c037979e936b19b701133bc3b5cff23b8ed"
     else
       url "https://ghproxy.monkeyray.net/https://github.com/witt-bit/EcoPastePro/releases/download/v#{version}/EcoPaste_aarch64.app.tar.gz"
-      sha256 "4e54d1f4d44d4851d71a094a0662262e38ec49f9066aca7287139abd649f8f65"
+      sha256 "d732a88c05315b4fc658875cdb8597ac091955bab83cb1d758551e985a0a9e2f"
     end
 
     name "EcoPaste"
