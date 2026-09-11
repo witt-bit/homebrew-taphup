@@ -22,7 +22,7 @@ cask "tiny-rdm" do
   app "Tiny RDM.app"
 
   # 尝试在安装后以当前用户移除 quarantine（不会使用 sudo）。
-  postflight do
+  postflight_steps do
     begin
       system_command '/usr/bin/xattr',
                      args: ['-d', 'com.apple.quarantine', "#{appdir}/Tiny RDM.app"],

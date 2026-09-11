@@ -53,12 +53,6 @@ brew install <formula>
   ```bash
   brew install --cask witt/taphup/imfile
   ```
-- Docker Desktop 中文版
-> 基于 [DockerDesktop-CN](https://github.com/asxez/DockerDesktop-CN) 汉化包，安装后自动应用中文界面
-
-  ```bash
-  brew install --cask witt/taphup/docker-desktop-cn
-  ```
 
 （仓库可能随时增加/移除包，请以 `Casks/` 和 `Formula/` 目录为准）
 

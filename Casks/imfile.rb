@@ -21,7 +21,7 @@ cask "imfile" do
 
   app "imFile.app"
 
-  postflight do
+  postflight_steps do
     begin
       system_command '/usr/bin/xattr',
                      args: ['-d', 'com.apple.quarantine', "#{appdir}/imFile.app"],
