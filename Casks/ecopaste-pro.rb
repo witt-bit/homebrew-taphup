@@ -1,4 +1,4 @@
-cask "ecopaste" do
+cask "ecopaste-pro" do
     version "0.6.0"
 
     if Hardware::CPU.intel?
