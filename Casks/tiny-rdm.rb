@@ -23,14 +23,9 @@ cask "tiny-rdm" do
 
   # 尝试在安装后以当前用户移除 quarantine（不会使用 sudo）。
   postflight_steps do
-    begin
-      system_command '/usr/bin/xattr',
-                     args: ['-d', 'com.apple.quarantine', "#{appdir}/Tiny RDM.app"],
-                     print_stdout: false, print_stderr: false
-    rescue => e
-      # 如果失败，不要执行 sudo（不推荐自动提权）
-      puts "NOTICE: Failed to remove com.apple.quarantine automatically: #{e}"
-    end
+    run "/usr/bin/xattr",
+        args: ["-d", "com.apple.quarantine", "{{appdir}}/Tiny RDM.app"],
+        must_succeed: false, print_stdout: false, print_stderr: false
   end
 
   zap trash: [

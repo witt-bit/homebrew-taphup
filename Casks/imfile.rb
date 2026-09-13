@@ -22,13 +22,9 @@ cask "imfile" do
   app "imFile.app"
 
   postflight_steps do
-    begin
-      system_command '/usr/bin/xattr',
-                     args: ['-d', 'com.apple.quarantine', "#{appdir}/imFile.app"],
-                     print_stdout: false, print_stderr: false
-    rescue => e
-      puts "NOTICE: Failed to remove com.apple.quarantine automatically: #{e}"
-    end
+    run "/usr/bin/xattr",
+        args: ["-d", "com.apple.quarantine", "{{appdir}}/imFile.app"],
+        must_succeed: false, print_stdout: false, print_stderr: false
   end
 
   caveats <<~EOS
