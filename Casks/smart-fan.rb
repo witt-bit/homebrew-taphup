@@ -19,7 +19,9 @@ cask "smart-fan" do
   depends_on arch: :arm64
   depends_on macos: :sonoma
 
-  app "SmartFan.app"
+  # 发行包外层套了一个以版本命名的目录，这样手动解压不会把文件散落一地；
+  # 因此这里要指到解压后的那一层，而不是 staging 根目录。
+  app "SmartFan-#{version}-macos-arm64/SmartFan.app"
 
   # 尝试在安装后以当前用户移除 quarantine（不会使用 sudo）。
   postflight_steps do
