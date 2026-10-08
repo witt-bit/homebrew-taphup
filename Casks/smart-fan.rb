@@ -1,8 +1,9 @@
 cask "smart-fan" do
   version "1.0.0"
-  # 取自发行包的 SHA256SUMS。CI 构建的 tar 与本机不同，所以每次发版后都要用
-  # release 里 SHA256SUMS 的值替换这一行；在第一个发行版创建之前，它只是占位。
-  sha256 "023c59bbf9a14819e23e5857f26e0e11b9c519a130bbd1e7e5732c0149f6972b"
+  # 由 SmartFan 仓库里的 `scripts/setup.sh cask` 写入：它打包、读 SHA256SUMS、更新这个文件。
+  # 上传的必须是该命令生成的那两个文件——重新打包会得到不同的 sha（tar 记录时间戳），
+  # 对不上就会报 checksum mismatch。
+  sha256 "5fea18e79ce61b20eefaca89956ce2d94f2c86be26d7e41410a5dd72cc013c3b"
 
   url "https://github.com/witt-bit/smart-fan/releases/download/v#{version}/SmartFan-#{version}-macos-arm64.tar.gz"
   name "SmartFan"
