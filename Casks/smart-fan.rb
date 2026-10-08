@@ -5,6 +5,9 @@ cask "smart-fan" do
   # 对不上就会报 checksum mismatch。
   sha256 "5fea18e79ce61b20eefaca89956ce2d94f2c86be26d7e41410a5dd72cc013c3b"
 
+  # 解析后的地址（Homebrew 用这个下载，已实测通过校验）：
+  #   https://github.com/witt-bit/smart-fan/releases/download/v1.0.0/SmartFan-1.0.0-macos-arm64.tar.gz
+  # 用 #{version} 插值而不是写死，发版时 `scripts/setup.sh cask` 只要改 version 与 sha256 两行。
   url "https://github.com/witt-bit/smart-fan/releases/download/v#{version}/SmartFan-#{version}-macos-arm64.tar.gz"
   name "SmartFan"
   desc "Menu bar fan control for Apple Silicon Macs"
