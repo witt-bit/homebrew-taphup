@@ -110,7 +110,7 @@ class Passbridge < Formula
     <<~'PY'
       #!/usr/bin/python3
       # Register PassBridge's native messaging hosts and try to load the unpacked extension.
-      # Safe to re-run; does nothing destructive. Lives in the Cellar, so it must not import anything.
+      # Safe to re-run; does nothing destructive. Lives in the Cellar, so it imports only the stdlib.
       import glob
       import json
       import os
@@ -119,11 +119,21 @@ class Passbridge < Formula
       import sys
 
       EXT_ID = "pejdijmoenmkgeppbflobdenhhabjlaj"
-      HOSTS = ["com.passbridge.policy", "com.passbridge.agent"]
-      # helper scripts this formula installs, and the ones it must not leave behind
+      # host name -> (script it runs, what it does)
+      HOSTS = {
+          "com.passbridge.policy": ("passbridge-policy.py", "policy helper"),
+          "com.passbridge.agent": ("passbridge-agent.py", "agent sign-in host"),
+      }
+      # helper scripts this formula installs, and what an older manual install may have left behind
       KEEP = ["passbridge-policy.py", "passbridge-agent.py", "passbridge-agent-cli.py"]
       DROP = ["passbridge-updater.py", "helper-version", "passbridge-autopair.py", "PassBridge Helper.app"]
-      LEGACY_HOSTS = ["com.passbridge.updater", "com.passbridge.autopair", "com.openpasswords.policy", "com.openpasswords.autopair"]
+      LEGACY_HOSTS = [
+          "com.passbridge.updater",
+          "com.passbridge.autopair",
+          "com.openpasswords.policy",
+          "com.openpasswords.autopair",
+      ]
+      # Brave is found by the glob below, so it is not listed here
       BROWSERS = [
           "Google/Chrome",
           "Google/Chrome Beta",
@@ -133,9 +143,10 @@ class Passbridge < Formula
           "Chromium",
           "Arc/User Data",
           "Vivaldi",
-          "BraveSoftware/Brave-Browser",
       ]
-      UNPACKED = 4
+      UNPACKED = 4  # extensions.settings[id].location for "load unpacked"
+
+      # the real home: brew runs post-install with a throwaway one, so ~ is not trustworthy
       HOME = pwd.getpwuid(os.getuid()).pw_dir
       SUPPORT = os.path.join(HOME, "Library", "Application Support")
       APPDIR = os.path.join(SUPPORT, "PassBridge")
@@ -159,60 +170,61 @@ class Passbridge < Formula
           i = parts.index("Cellar")
           if len(parts) < i + 4:
               return path
-          prefix, name, rest = os.sep.join(parts[: i]), parts[i + 1], parts[i + 3 :]
-          return os.path.join(prefix, "opt", name, *rest)
+          return os.sep.join(parts[:i] + ["opt", parts[i + 1]] + parts[i + 3:])
 
 
       LIBEXEC = stable(os.path.dirname(os.path.realpath(__file__)))
       HELPER = os.path.join(LIBEXEC, "helper")
       EXTENSION = os.path.join(LIBEXEC, "extension")
-      SCRIPT = {name: os.path.join(HELPER, name) for name in KEEP}
+
+
+      def drop(path):
+          if os.path.islink(path) or os.path.isfile(path):
+              os.remove(path)
+          elif os.path.isdir(path):
+              shutil.rmtree(path, ignore_errors=True)
+          else:
+              return
+          say("  removed " + path)
 
 
       def link_helper():
           os.makedirs(APPDIR, exist_ok=True)
           for name in KEEP:
-              target = SCRIPT[name]
-              link = os.path.join(APPDIR, name)
+              target = os.path.join(HELPER, name)
               if not os.path.exists(target):
                   warn("  missing helper script: " + target)
                   continue
+              link = os.path.join(APPDIR, name)
               if os.path.islink(link) or os.path.exists(link):
                   os.remove(link)
               os.symlink(target, link)
               say("  linked " + link)
           for name in DROP:
-              path = os.path.join(APPDIR, name)
-              if os.path.islink(path) or os.path.isfile(path):
-                  os.remove(path)
-                  say("  removed " + path)
-              elif os.path.isdir(path):
-                  shutil.rmtree(path, ignore_errors=True)
-                  say("  removed " + path)
+              drop(os.path.join(APPDIR, name))
 
 
-      def host_dirs():
-          found = []
-          for browser in BROWSERS:
-              base = os.path.join(SUPPORT, browser)
-              if os.path.isdir(base):
-                  found.append(os.path.join(base, "NativeMessagingHosts"))
-          for base in glob.glob(os.path.join(SUPPORT, "BraveSoftware", "*")):
-              if os.path.isdir(base):
-                  found.append(os.path.join(base, "NativeMessagingHosts"))
-          return found
+      def browsers():
+          """every Chromium browser under Application Support that has a folder there"""
+          found = [os.path.join(SUPPORT, b) for b in BROWSERS]
+          found += glob.glob(os.path.join(glob.escape(SUPPORT), "BraveSoftware", "*"))
+          return [b for b in found if os.path.isdir(b)]
 
 
-      def write_hosts():
-          dirs = host_dirs()
-          for directory in dirs:
+      def running(browser):
+          lock = os.path.join(browser, "SingletonLock")
+          return os.path.islink(lock) or os.path.exists(lock)
+
+
+      def write_hosts(bases):
+          for base in bases:
+              directory = os.path.join(base, "NativeMessagingHosts")
               os.makedirs(directory, exist_ok=True)
-              for name in HOSTS:
-                  script = "passbridge-policy.py" if name.endswith("policy") else "passbridge-agent.py"
+              for name, (script, what) in HOSTS.items():
                   entry = {
                       "name": name,
-                      "description": "PassBridge " + ("policy helper" if name.endswith("policy") else "agent sign-in host"),
-                      # through the symlink, so the browsers keep one stable path across upgrades
+                      "description": "PassBridge " + what,
+                      # through the symlink, so the browser keeps one path across upgrades
                       "path": os.path.join(APPDIR, script),
                       "type": "stdio",
                       "allowed_origins": ["chrome-extension://" + EXT_ID + "/"],
@@ -223,16 +235,17 @@ class Passbridge < Formula
               for name in LEGACY_HOSTS:
                   stale = os.path.join(directory, name + ".json")
                   if os.path.exists(stale):
-                      os.remove(stale)
-                      say("  removed stale host " + stale)
-          if not dirs:
-              warn("  no Chromium browser profile found yet; run passbridge-setup after installing one")
-          return dirs
+                      drop(stale)
+          if not bases:
+              warn("  no Chromium browser found yet; run passbridge-setup after installing one")
 
 
-      def browser_running(browser):
-          marker = os.path.join(SUPPORT, browser, "SingletonLock")
-          return os.path.islink(marker) or os.path.exists(marker)
+      def profile_files(bases):
+          out = []
+          for base in bases:
+              for name in ("Preferences", "Secure Preferences"):
+                  out += glob.glob(os.path.join(glob.escape(base), "*", name))
+          return out
 
 
       def enable_extension(profiles):
@@ -242,9 +255,11 @@ class Passbridge < Formula
                   manifest = json.load(f)
           except (OSError, ValueError):
               warn("  extension manifest unreadable, skipping auto-load")
-              return False
-          perms = {"api": [p for p in manifest.get("permissions", []) if isinstance(p, str)],
-                   "explicit_host": list(manifest.get("host_permissions", []))}
+              return
+          perms = {
+              "api": [p for p in manifest.get("permissions", []) if isinstance(p, str)],
+              "explicit_host": list(manifest.get("host_permissions", [])),
+          }
           entry = {
               "location": UNPACKED,
               "path": EXTENSION,
@@ -258,7 +273,6 @@ class Passbridge < Formula
               "granted_permissions": perms,
               "withheld_permissions": {"api": [], "explicit_host": [], "scriptable_host": []},
           }
-          wrote = False
           for path in profiles:
               try:
                   with open(path, encoding="utf-8") as f:
@@ -267,45 +281,30 @@ class Passbridge < Formula
                   warn("  unreadable profile: " + path)
                   continue
               settings = prefs.setdefault("extensions", {}).setdefault("settings", {})
-              current = settings.get(EXT_ID) or {}
-              current.update(entry)
-              settings[EXT_ID] = current
+              settings[EXT_ID] = dict(settings.get(EXT_ID) or {}, **entry)
               try:
                   tmp = path + ".passbridge-tmp"
                   with open(tmp, "w", encoding="utf-8") as f:
                       json.dump(prefs, f)
                   os.replace(tmp, path)
-                  wrote = True
                   say("  enabled in " + path)
               except OSError as exc:
                   warn("  could not write " + path + ": " + str(exc))
-          return wrote
-
-
-      def profile_files(dirs, skip):
-          out = []
-          for directory in dirs:
-              browser = os.path.dirname(directory)
-              if os.path.realpath(browser) in skip:
-                  continue
-              for pattern in ("Preferences", "Secure Preferences"):
-                  out += glob.glob(os.path.join(glob.escape(browser), "*", pattern))
-          return out
 
 
       def main():
           if not os.path.isdir(HELPER):
-              say("helper folder missing: " + HELPER)
+              warn("helper folder missing: " + HELPER)
               return 1
           say("PassBridge helper: " + HELPER)
           link_helper()
-          dirs = write_hosts()
-          running = {os.path.realpath(os.path.dirname(d)) for d in dirs if browser_running(os.path.dirname(d))}
-          profiles = profile_files(dirs, running)
-          if running:
-              names = sorted(os.path.relpath(p, SUPPORT) for p in running)
-              warn("  " + ", ".join(names) + " is running; left its profile alone")
-              profiles = [p for p in profiles if os.path.realpath(os.path.dirname(os.path.dirname(p))) not in running]
+          bases = browsers()
+          write_hosts(bases)
+          live = [b for b in bases if running(b)]
+          if live:
+              names = ", ".join(os.path.relpath(b, SUPPORT) for b in live)
+              warn("  " + names + " is running; left its profile alone")
+          profiles = profile_files([b for b in bases if b not in live])
           if profiles:
               enable_extension(profiles)
           else:
