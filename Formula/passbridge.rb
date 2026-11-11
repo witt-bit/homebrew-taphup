@@ -1,8 +1,8 @@
 class Passbridge < Formula
   desc "Autofill iCloud Passwords in Chromium browsers"
   homepage "https://github.com/MehdiMamas/passbridge"
-  url "https://github.com/MehdiMamas/passbridge/releases/download/v1.4.29/passbridge.zip"
-  sha256 "d10195934d8c6b853a06be340e3c7cda6df6b789b13849acb0a2fab157f0279e"
+  url "https://github.com/MehdiMamas/passbridge/releases/download/v1.4.30/passbridge.zip"
+  sha256 "74c2d56d4347aece601ebba572cabcd6c0c7ab478304c4d042af1779b862528c"
   license "GPL-3.0-only"
 
   depends_on :macos
@@ -10,8 +10,8 @@ class Passbridge < Formula
   # The helper ships as a second asset. passbridge-updater.py is deliberately left out: this formula
   # owns updates, so the extension must not replace its own files behind Homebrew's back.
   resource "helper" do
-    url "https://github.com/MehdiMamas/passbridge/releases/download/v1.4.29/passbridge-macos-helper.zip"
-    sha256 "007601d6e0d39055a02173b1f9a21ab0126a3cf8e44da73412dfbea444303be8"
+    url "https://github.com/MehdiMamas/passbridge/releases/download/v1.4.30/passbridge-macos-helper.zip"
+    sha256 "152eb8e50744504fbbf309d5d346a192ede1a834d81c87ec8b68256fa1e70df9"
   end
 
   def install
@@ -55,7 +55,7 @@ class Passbridge < Formula
     clamp = {
       "background.js" => "{ ...SETTINGS_DEFAULTS, ...o }",
       "content.js"    => "{ ...SETTINGS_DEFAULTS, ...o }",
-      "options.js"    => "{...Pt,...I}",
+      "options.js"    => "{...et,...J}",
     }
     clamp.each do |name, before|
       file = ext/"src"/name
@@ -471,8 +471,12 @@ class Passbridge < Formula
     assert_predicate libexec/"helper/passbridge-policy.py", :executable?
     assert_predicate libexec/"passbridge-setup", :executable?
 
-    # no managed profile forces the key, so the policy helper exits 3 for --forced
-    assert_match "status=3",
-                 shell_output("#{libexec}/helper/passbridge-policy.py --forced; echo status=$?")
+    # --forced answers 0 when a profile forces the keys and 3 when none does; both are the helper
+    # working. Anything else, and the assertion below fails instead of the exit code going unnoticed.
+    assert_match(/status=[03]/,
+                 shell_output("#{libexec}/helper/passbridge-policy.py --forced; echo status=$?"))
+
+    # the profile the switch writes has to cover saving and filling, whichever release ships it
+    assert_match "PasswordManagerBlocklist", (libexec/"helper/passbridge-policy.py").read
   end
 end
