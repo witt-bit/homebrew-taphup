@@ -1,0 +1,214 @@
+name: autobump
+
+# 自动把「上游靠 GitHub Releases 发版」的 cask 升到最新版本。
+#
+# 工作方式：
+#   1. brew livecheck 取上游最新版本（GitHub latest release）
+#   2. 与 cask 里的 version 比对，未变化则跳过
+#   3. 有新版则交给 brew bump-cask-pr 重写 version 与各架构 sha256，并开 PR
+#
+# 新增 cask：在下文 strategy.matrix.cask 追加一行 token 即可，
+# 前提是该 cask 的 livecheck 能解析出 GitHub 版本（多数 `strategy :github_latest` 都满足）。
+
+on:
+  schedule:
+    # 每天 UTC 03:17（北京时间 11:17）跑一次
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      cask:
+        description: "只处理指定 cask（留空 = 处理矩阵内全部）"
+        required: false
+        default: ""
+      mode:
+        description: "pr = 只开 PR 待你合并；merge = 开 PR 后立即 squash 合并"
+        type: choice
+        options:
+          - pr
+          - merge
+        default: pr
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: autobump-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  autobump:
+    name: bump ${{ matrix.cask }}
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        cask:
+          - openidea
+          # 下面这些同样来自 GitHub Releases，确认各自的 livecheck 能解析版本后
+          # 再逐个解除注释：
+          # - clash-mac
+          # - imfile
+          # - smart-fan
+          # - tiny-rdm
+          # - ecopaste-pro
+          # - font-monaco-nerd-font
+    steps:
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@main
+        with:
+          token: ${{ secrets.BREW_TAP_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Resolve tap name
+        id: tap
+        run: |
+          set -euo pipefail
+          OWNER="${GITHUB_REPOSITORY%%/*}"
+          REPO="${GITHUB_REPOSITORY##*/}"
+          # homebrew-taphup -> witt-bit/taphup
+          TAP_LEAF="${REPO#homebrew-}"
+          echo "name=${OWNER}/${TAP_LEAF}" >> "$GITHUB_OUTPUT"
+          echo "tap=${OWNER}/${TAP_LEAF}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Tap this repository
+        env:
+          GH_TOKEN: ${{ secrets.BREW_TAP_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAP="${{ steps.tap.outputs.name }}"
+
+          # 注意：brew tap 会把 `user/repo` 展开成 github.com/user/homebrew-repo，
+          # 所以这里必须用 TAP（witt-bit/taphup），不能直接传 $GITHUB_REPOSITORY，
+          # 否则会去找 homebrew-homebrew-taphup。
+          if ! brew tap | grep -qx "$TAP"; then
+            brew tap "$TAP"
+          fi
+
+          # bump-cask-pr 需要向本仓库推送分支。匿名 clone 没有写权限，
+          # 这里把 origin 换成带 token 的地址（仅在本次 CI 的临时 clone 内生效）。
+          TAPDIR="$(brew --repository)/Library/Taps/${TAP}"
+          git -C "$TAPDIR" remote set-url origin \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          echo "tap 已就绪：${TAPDIR}"
+
+      - name: Check upstream version
+        id: check
+        env:
+          HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.BREW_TAP_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          TAP="${{ steps.tap.outputs.name }}"
+          TOKEN="${{ matrix.cask }}"
+          CASK="${TAP}/${TOKEN}"
+
+          # 手动触发时若指定了 cask，其余 job 直接跳过
+          WANTED="${{ github.event.inputs.cask }}"
+          if [ -n "$WANTED" ] && [ "$WANTED" != "$TOKEN" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "跳过 ${TOKEN}（本次只处理 ${WANTED}）"
+            exit 0
+          fi
+
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "cask=${CASK}" >> "$GITHUB_OUTPUT"
+
+          # --json 输出到 stdout，warning 走 stderr，分开捕获以免污染 JSON
+          if ! brew livecheck --cask "$CASK" --json > /tmp/lc.json 2>/tmp/lc.err; then
+            echo "livecheck 失败：" >&2
+            cat /tmp/lc.err >&2
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CURRENT=$(jq -r '.[0].version.current // empty' /tmp/lc.json)
+          LATEST=$(jq -r '.[0].version.latest  // empty' /tmp/lc.json)
+          OUTDATED=$(jq -r '.[0].version.outdated // false' /tmp/lc.json)
+
+          echo "当前 ${CURRENT} / 上游 ${LATEST} / outdated=${OUTDATED}"
+
+          {
+            echo "### ${TOKEN}"
+            echo ""
+            echo "| 当前 | 上游最新 | 需更新 |"
+            echo "|---|---|---|"
+            echo "| ${CURRENT:-?} | ${LATEST:-?} | ${OUTDATED} |"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -z "$LATEST" ]; then
+            echo "无法解析上游版本，跳过。"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$OUTDATED" != "true" ]; then
+            echo "已是最新，跳过。"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "latest=${LATEST}" >> "$GITHUB_OUTPUT"
+
+      - name: Bump cask
+        if: steps.check.outputs.skip == 'false'
+        id: bump
+        env:
+          GH_TOKEN: ${{ secrets.BREW_TAP_TOKEN || secrets.GITHUB_TOKEN }}
+          HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.BREW_TAP_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          CASK="${{ steps.check.outputs.cask }}"
+          LATEST="${{ steps.check.outputs.latest }}"
+
+          # bump-cask-pr 会自动重算所有架构的 sha256。
+          # --no-audit --no-style：非官方 tap 的 audit/style 规则与 homebrew/cask 不同，
+          # 跳过以免因无关规则导致更新失败。
+          set +e
+          OUTPUT=$(brew bump-cask-pr \
+            --no-fork --no-audit --no-style \
+            --version "$LATEST" \
+            --message "chore: bump ${{ matrix.cask }} to ${LATEST}" \
+            "$CASK" 2>&1)
+          STATUS=$?
+          set -e
+
+          echo "$OUTPUT"
+
+          if [ $STATUS -ne 0 ]; then
+            echo "bump-cask-pr 失败（可能已有同版本 PR 在等待合并）" >&2
+            {
+              echo "❌ bump 失败"
+              echo '```'
+              echo "$OUTPUT" | tail -20
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit $STATUS
+          fi
+
+          PR_URL=$(echo "$OUTPUT" | grep -oE 'https://github\.com/[^ ]+/pull/[0-9]+' | tail -1 || true)
+          echo "pr=${PR_URL}" >> "$GITHUB_OUTPUT"
+          {
+            echo "✅ 已开启 PR：${PR_URL:-（未解析到 URL）}"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Merge PR (optional)
+        if: |
+          steps.check.outputs.skip == 'false' &&
+          steps.bump.outputs.pr != '' &&
+          (github.event.inputs.mode || 'pr') == 'merge'
+        env:
+          GH_TOKEN: ${{ secrets.BREW_TAP_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          PR="${{ steps.bump.outputs.pr }}"
+          echo "合并 ${PR}"
+          # 用 GITHUB_TOKEN 建的 PR 不会触发其它 workflow，
+          # 因此这里直接合并；若仓库开启了必需检查，此步会失败并保留 PR 待人工处理。
+          if gh pr merge "$PR" --squash --delete-branch; then
+            echo "✅ 已合并 ${PR}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "⚠️ 自动合并失败，PR 保留待人工处理：${PR}" >> "$GITHUB_STEP_SUMMARY"
+          fi
