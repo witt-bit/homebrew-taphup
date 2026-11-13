@@ -1,8 +1,8 @@
 class Passbridge < Formula
   desc "Autofill iCloud Passwords in Chromium browsers"
   homepage "https://github.com/MehdiMamas/passbridge"
-  url "https://github.com/MehdiMamas/passbridge/releases/download/v1.4.30/passbridge.zip"
-  sha256 "74c2d56d4347aece601ebba572cabcd6c0c7ab478304c4d042af1779b862528c"
+  url "https://github.com/MehdiMamas/passbridge/releases/download/v1.4.31/passbridge.zip"
+  sha256 "5778e6f7fa621dc6d18414aec28ab386316eefe44beb736ab80ad656cf6cff4f"
   license "GPL-3.0-only"
 
   depends_on :macos
@@ -10,8 +10,8 @@ class Passbridge < Formula
   # The helper ships as a second asset. passbridge-updater.py is deliberately left out: this formula
   # owns updates, so the extension must not replace its own files behind Homebrew's back.
   resource "helper" do
-    url "https://github.com/MehdiMamas/passbridge/releases/download/v1.4.30/passbridge-macos-helper.zip"
-    sha256 "152eb8e50744504fbbf309d5d346a192ede1a834d81c87ec8b68256fa1e70df9"
+    url "https://github.com/MehdiMamas/passbridge/releases/download/v1.4.31/passbridge-macos-helper.zip"
+    sha256 "ca87e86cebe42abd03432aa91cef328f3bf28411eb8e996dd7f8ccc5404e0822"
   end
 
   def install
@@ -24,53 +24,12 @@ class Passbridge < Formula
     ext.mkpath
     ext.install Dir["*"]
 
-    # Updates are Homebrew's job here. Every copy of the defaults table says "check" and
-    # "install automatically"; both are turned off so the 30-minute alarm goes quiet.
-    # Minified bundles write boolean true as !0 and false as !1.
-    flip = {
-      "canCheckForUpdates: true" => "canCheckForUpdates: false",
-      "autoInstallUpdates: true" => "autoInstallUpdates: false",
-      "canCheckForUpdates:!0"    => "canCheckForUpdates:!1",
-      "autoInstallUpdates:!0"    => "autoInstallUpdates:!1",
-    }
-    (ext/"src").glob("*.js").each do |file|
-      body = file.read
-      next unless body.match?(/canCheckForUpdates|autoInstallUpdates/)
-
-      flip.each { |before, after| body = body.gsub(before, after) }
-      # Homebrew's Pathname#write refuses to overwrite, and these files were just installed
-      File.write(file.to_s, body)
-    end
-
-    # a release that renames or reshapes its defaults would slip through the flip above unnoticed
-    leftover = /(canCheckForUpdates|autoInstallUpdates):\s*(true|!0)/
-    stale = (ext/"src").glob("*.js").select { |file| file.read.match?(leftover) }
-    odie "Update flags still on in #{stale.join(", ")}: the release changed shape, review the formula." if stale.any?
-
-    # Flipping the defaults only helps a profile that never saved these settings. One that ran
-    # an earlier build still has canCheckForUpdates=true in chrome.storage, and that turns the
-    # update tab back on, where "install automatically" sits greyed out asking for an updater
-    # helper this build deliberately does not ship. Clamp the value where settings are merged,
-    # and drop the tab: nothing on it can work here, updates arrive through `brew upgrade`.
-    clamp = {
-      "background.js" => "{ ...SETTINGS_DEFAULTS, ...o }",
-      "content.js"    => "{ ...SETTINGS_DEFAULTS, ...o }",
-      "options.js"    => "{...et,...J}",
-    }
-    clamp.each do |name, before|
-      file = ext/"src"/name
-      body = file.read
-      odie "#{name} no longer merges settings the way this formula expects." unless body.include?(before)
-      pinned = before.sub(/\}$/, ", canCheckForUpdates: false, autoInstallUpdates: false }")
-      pinned = before.sub(/\}$/, ",canCheckForUpdates:!1,autoInstallUpdates:!1}") if name == "options.js"
-      File.write(file.to_s, body.sub(before, pinned))
-    end
-
-    options = ext/"src/options.js"
-    tab = ',{id:"updates",labelKey:"tabUpdates"}'
-    body = options.read
-    odie "options.js no longer lists the updates tab where this formula expects it." unless body.include?(tab)
-    File.write(options.to_s, body.sub(tab, ""))
+    # managed.json next to manifest.json is the release's own way of saying "someone else owns
+    # updates": with it true the extension turns its checks off, hides the Updates tab and stops
+    # a badge, and a saved "check for updates" synced from another machine cannot undo that. The
+    # zip ships {"managed": false}, and this folder is rewritten on every upgrade, so write it
+    # each install. Homebrew's Pathname#write will not replace a file, hence File.write.
+    File.write((ext/"managed.json").to_s, '{ "managed": true }')
 
     install_helper
     install_setup
@@ -450,19 +409,11 @@ class Passbridge < Formula
     assert_path_exists ext/"_locales/zh_CN/messages.json"
     assert_path_exists ext/"_locales/zh_TW/messages.json"
 
-    # updates must be off in every bundled copy of the defaults table
-    src.glob("*.js").each do |file|
-      refute_match(/(canCheckForUpdates|autoInstallUpdates):\s*(true|!0)/, file.read,
-                   "#{file.basename} would still update itself")
-    end
-
-    # a saved "on" must not turn them back on, and the update tab must not be offered
-    %w[background.js content.js].each do |name|
-      assert_match(/canCheckForUpdates: false, autoInstallUpdates: false/, (src/name).read,
-                   "#{name} would honour a saved value")
-    end
-    assert_match(/canCheckForUpdates:!1,autoInstallUpdates:!1/, (src/"options.js").read)
-    refute_match(/id:"updates"/, (src/"options.js").read, "the update tab is still offered")
+    # Homebrew owns updates here, so the marker has to be on, and the bundles have to keep reading
+    # it: a release that renames or drops the file would leave updates running under the formula.
+    assert_match(/^\{\s*"managed":\s*true\s*\}$/, (ext/"managed.json").read, "updates are not marked as managed")
+    assert_match "managed.json", (src/"options.js").read, "the options page no longer reads the marker"
+    assert_match "managed.json", (src/"background.js").read, "the worker no longer reads the marker"
 
     assert_path_exists libexec/"helper/passbridge-policy.py"
     assert_path_exists libexec/"helper/passbridge-agent.py"
